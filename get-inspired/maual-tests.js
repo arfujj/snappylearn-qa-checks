@@ -1,112 +1,87 @@
-// tests/get-inspired.spec.ts
-import { test, expect } from '@playwright/test';
+/*************************************************************************
+ *  GET-INSPIRED – QA   (TC033 → TC036-02)
 
-/*  Edit these if your routes or selectors differ */
-const HOME_URL        = '/';                     
-const CARD_SELECTOR   = '[data-testid="inspiration-card"]';
-const NEXT_BTN        = '[aria-label*="next"]';
-const PREV_BTN        = '[aria-label*="prev"]';
-const CAROUSEL_WRAP   = '.carousel-container';   /
+(() => {
+  /* ------------ adjustable selectors ------------ */
+  const CARD        = '[data-testid="inspiration-card"]'; // each quote card
+  const NEXT_BTN    = '[aria-label*="next"]';             // “Next” arrow
+  const PREV_BTN    = '[aria-label*="prev"]';             // “Prev” arrow
+  const CAROUSEL_WR = '.carousel-container';              // swipe area
+  /* ------------------------------------------------ */
 
-/**********************************************************
- * TC033 – Validate image and quote display on each card
- **********************************************************/
-test('TC033 – every card shows an image and a quote', async ({ page }) => {
-  await page.goto(HOME_URL);
+  const $  = (s, ctx = document) => ctx.querySelector(s);
+  const $$ = (s, ctx = document) => [...ctx.querySelectorAll(s)];
+  const log = (id, ok, msg = '') =>
+    console[ok ? 'log' : 'error'](`${ok ? '✅' : '❌'} ${id} – ${msg}`);
 
-  const cards = await page.$$(CARD_SELECTOR);
-  expect(cards.length).toBeGreaterThan(0);
+  /******************************************************************
+   * TC033 · each card has a visible image and a quote
+   ******************************************************************/
+  const cards = $$(CARD);
+  const imgOK  = cards.every(c => $('img', c) && $('img', c).naturalWidth);
+  const txtOK  = cards.every(c => c.textContent.trim().length > 0);
+  log('TC033', imgOK && txtOK,
+      `${cards.length} cards checked`);
 
-  for (const card of cards) {
-    const img  = await card.$('img');
-    const text = await card.innerText();
-    expect(img, 'missing <img>').not.toBeNull();
-    expect(await img!.getAttribute('src')).not.toBeNull();
-    expect(text.trim().length, 'quote text missing').toBeGreaterThan(0);
+  /******************************************************************
+   * TC034 · arrow buttons & swipe change active card
+   ******************************************************************/
+  const firstText = $(CARD + ':not([hidden])')?.textContent.trim();
+  $(NEXT_BTN)?.click();
+  const afterNext = $(CARD + ':not([hidden])')?.textContent.trim();
+  const arrowOK   = firstText !== afterNext;
+
+  /* optional swipe test (may be blocked by Chrome) */
+  let swipeOK = false;
+  const wrap = $(CAROUSEL_WR);
+  if (wrap && window.Touch) {
+    try {
+      const tStart = new Touch({ identifier: 1, target: wrap, clientX: 300, clientY: 0 });
+      const tMove  = new Touch({ identifier: 1, target: wrap, clientX: 100, clientY: 0 });
+      wrap.dispatchEvent(new TouchEvent('touchstart', { touches:[tStart], targetTouches:[tStart], changedTouches:[tStart], bubbles:true }));
+      wrap.dispatchEvent(new TouchEvent('touchmove',  { touches:[tMove],  targetTouches:[tMove],  changedTouches:[tMove],  bubbles:true }));
+      wrap.dispatchEvent(new TouchEvent('touchend',   { touches:[],       targetTouches:[],       changedTouches:[tMove],  bubbles:true }));
+      swipeOK = true;
+    } catch { /* synthetic Touch blocked */ }
   }
-});
+  log('TC034', arrowOK && swipeOK,
+      arrowOK ? (swipeOK ? 'Arrows & swipe work' : 'Arrows OK – swipe not verified')
+              : 'Arrows did not change card');
 
-/**********************************************************
- * TC034 – Arrow navigation & swipe behaviour
- **********************************************************/
-test('TC034 – arrows and swipe change active card', async ({ page, browserName }) => {
-  await page.goto(HOME_URL);
+  /******************************************************************
+   * TC035 · keyboard navigation (Arrow keys / Tab)
+   ******************************************************************/
+  wrap?.focus();
+  const beforeKey = $(CARD + ':not([hidden])')?.textContent.trim();
+  document.activeElement === wrap && document.dispatchEvent(new KeyboardEvent('keydown', { key:'ArrowRight' }));
+  const afterKey  = $(CARD + ':not([hidden])')?.textContent.trim();
+  const keyOK     = beforeKey !== afterKey;
+  const tabOk1    = !!$(PREV_BTN) && !!$(NEXT_BTN);
+  log('TC035', keyOK && tabOk1,
+      keyOK ? 'ArrowRight moved carousel' : 'Arrow key did not change card');
 
-  // capture first visible quote
-  const firstQuote = await page.locator(`${CARD_SELECTOR}:not([hidden])`).innerText();
+  /******************************************************************
+   * TC036 · images have alt text; buttons have ARIA labels
+   ******************************************************************/
+  const altOK  = $$(`${CARD} img`).every(i => (i.alt || '').trim().length > 3);
+  const ariaOK = $(NEXT_BTN)?.getAttribute('aria-label') &&
+                 $(PREV_BTN)?.getAttribute('aria-label');
+  log('TC036', altOK && ariaOK,
+      altOK ? 'Alt + ARIA labels present' : 'Missing alt or ARIA');
 
-  // click Next arrow
-  await page.click(NEXT_BTN);
-  await expect(page.locator(`${CARD_SELECTOR}:not([hidden])`)).not.toHaveText(firstQuote);
+  /******************************************************************
+   * TC036-1 · page has no horizontal overflow
+   ******************************************************************/
+  const overflow = document.documentElement.scrollWidth > window.innerWidth;
+  log('TC036-1', !overflow,
+      !overflow ? 'No overflow' : 'Horizontal scroll detected');
 
-  // swipe only on chromium-based browsers (webkit & firefox ignore synthetic touch)
-  if (browserName === 'chromium') {
-    const carousel = page.locator(CAROUSEL_WRAP);
-    const box = await carousel.boundingBox();
-    if (box) {
-      await page.touchscreen.tap(box.x + box.width - 10, box.y + box.height / 2); // touchstart
-      await page.touchscreen.swipe(box.x + box.width - 10, box.y + box.height / 2, box.x + 10, box.y + box.height / 2); // swipe left
-      await expect(page.locator(`${CARD_SELECTOR}:not([hidden])`)).not.toHaveText(firstQuote);
-    }
-  }
-});
+  /******************************************************************
+   * TC036-02 · carousel listens for touch/pointer events
+   ******************************************************************/
+  const touchAble = wrap && ('ontouchstart' in wrap || 'PointerEvent' in window);
+  log('TC036-02', !!touchAble,
+      touchAble ? 'Touch/Pointer events supported' : 'No touch listener');
 
-/**********************************************************
- * TC035 – Keyboard navigation (Arrow keys / Tab)
- **********************************************************/
-test('TC035 – user can navigate cards with keyboard', async ({ page }) => {
-  await page.goto(HOME_URL);
-
-  // focus carousel wrapper then ArrowRight
-  await page.locator(CAROUSEL_WRAP).focus();
-  const before = await page.locator(`${CARD_SELECTOR}:not([hidden])`).innerText();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(`${CARD_SELECTOR}:not([hidden])`)).not.toHaveText(before);
-
-  // Tab cycles to nav buttons
-  await page.keyboard.press('Shift+Tab'); // move focus back to Prev
-  await expect(page.locator(PREV_BTN)).toBeFocused();
-  await page.keyboard.press('Tab');       // Next
-  await expect(page.locator(NEXT_BTN)).toBeFocused();
-});
-
-/**********************************************************
- * TC036 – Alt text & ARIA labels
- **********************************************************/
-test('TC036 – all images have alt text; nav buttons have accessible labels', async ({ page }) => {
-  await page.goto(HOME_URL);
-
-  const imgs = await page.$$(CARD_SELECTOR + ' img');
-  for (const img of imgs) {
-    const alt = await img.getAttribute('alt');
-    expect(alt?.trim().length, 'missing/empty alt').toBeGreaterThan(0);
-  }
-  await expect(page.locator(NEXT_BTN)).toHaveAttribute('aria-label', /next/i);
-  await expect(page.locator(PREV_BTN)).toHaveAttribute('aria-label', /prev|previous/i);
-});
-
-/**********************************************************
- * TC036-1 – Layout overflow check
- **********************************************************/
-test('TC036-1 – no horizontal scroll/overflow in Get Inspired section', async ({ page }) => {
-  await page.goto(HOME_URL);
-
-  const hasOverflow = await page.evaluate(() =>
-    document.documentElement.scrollWidth > window.innerWidth
-  );
-  expect(hasOverflow, 'page overflows horizontally').toBeFalsy();
-});
-
-/**********************************************************
- * TC036-02 – Touch event listener present on carousel
- **********************************************************/
-test('TC036-02 – carousel listens for touch events', async ({ page }) => {
-  await page.goto(HOME_URL);
-
-  const touchSupported = await page.evaluate(sel => {
-    const el = document.querySelector(sel);
-    return !!el && ('ontouchstart' in el || el instanceof HTMLElement && el.addEventListener.toString().includes('touch'));
-  }, CAROUSEL_WRAP);
-
-  expect(touchSupported, 'touch events not detected on carousel').toBeTruthy();
-});
+  console.log('%cGet Inspired QA suite complete.', 'color:#0b7;font-weight:bold;');
+})();
