@@ -16,15 +16,43 @@
   const footer = document.querySelector('footer');
   if (!footer) { console.error('❌  No <footer> element found.'); return; }
 
-  /**********************************************************************
-   * TC042 · Logo & company text visible
-   *********************************************************************/
-  const logoOK    = !!footer.querySelector('img, svg, .logo');
-  const companyOK = COMPANY_REGEX.test(footer.textContent);
-  log('TC042', logoOK && companyOK,
-      !logoOK    ? 'Logo missing'
-    : !companyOK ? 'Company text missing'
-                 : 'Logo + company text present');
+/**********************************************************************
+ * TC042 · Company logo is visible (manual match)
+ *********************************************************************/
+(() => {
+  const footer = document.querySelector('footer');
+  if (!footer) {
+    console.error('❌ TC042 – <footer> not found.');
+    return;
+  }
+
+  // Gather all candidate logos
+  const candidates = footer.querySelectorAll('img, svg, .logo');
+
+  // Check for at least one that's visible and looks like a logo
+  const logo = [...candidates].find(el => {
+    const alt  = (el.getAttribute('alt') || '').toLowerCase();
+    const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+    const src  = (el.getAttribute('src') || '').toLowerCase();
+    const txt  = el.className?.toLowerCase?.() || '';
+
+    const looksLikeLogo = [alt, aria, src, txt].some(v => v.includes('logo'));
+
+    const visible =
+      el.offsetParent !== null &&
+      el.getBoundingClientRect().width > 0 &&
+      el.getBoundingClientRect().height > 0;
+
+    return looksLikeLogo && visible;
+  });
+
+  console[logo ? 'log' : 'error'](
+    `${logo ? '✅' : '❌'} TC042 – ` +
+    (logo ? 'Logo is visible in footer' : 'No visible logo found in footer')
+  );
+})();
+
+
 
   /**********************************************************************
    * TC043 · All footer links (same-origin) route correctly
@@ -63,7 +91,7 @@
         : 'Bad / missing target=_blank or non-social URLs');
 
   /**********************************************************************
-   * TC045 · “Collaborate / Schedule Assessment” CTA routes to Contact - Not deiided completely
+   * TC045 · “Collaborate / Schedule Assessment” CTA routes to Contact - Not deiided completely if to include
    *********************************************************************/
   const ctas = [...footer.querySelectorAll('a,button')]
                  .filter(el => CTA_REGEX.test(el.textContent + (el.getAttribute('aria-label') || '')));
